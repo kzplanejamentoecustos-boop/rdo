@@ -140,3 +140,9 @@ button.rdo-cont:hover { box-shadow: 0 4px 12px rgba(15, 23, 42, .18); }
   .rdo-secao, .rdo-aprov__box, .rdo-doc tr { break-inside: avoid; }
 }
 .rdo-cluster-inline { display: inline-flex; align-items: center; gap: 2px; flex-wrap: nowrap; }
+
+/* v1.3.0: quem esta com o RDO aberto (iniciais, como no Excel) */
+.rdo-presenca { display: inline-flex; align-items: center; padding-left: 6px; }
+.rdo-presenca:empty { display: none; }
+.rdo-presenca__av { width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-left: -6px; border: 2px solid #fff; color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .02em; cursor: default; box-shadow: 0 1px 2px rgba(15,23,42,.25); }
+.rdo-presenca__mais { background: #475569; }
