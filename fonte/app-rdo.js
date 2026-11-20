@@ -7,6 +7,8 @@
    (CTC App Standard 1.7 + acesso-kz.js do Portal KZ): visual do Controle de
    Custos, login do Portal KZ e nuvem por obra.
 
+   1.2.0: aprovadores definidos no Portal KZ aparecem travados na Configuracao (com cadeado);
+          caixa de aprovacao da folha mostra "Aguardando voce" para o aprovador da vez.
    1.1.0: visual no modelo do Diario de Obra: visao geral com foto da obra, contadores,
           relatorios e fotos recentes; lista com legenda e etiquetas cheias (Preenchendo /
           Revisar / Aprovado); relatorio em formato de folha (logos, quadro de prazos, horario,
@@ -56,7 +58,7 @@
    00. CONFIGURACAO, ACESSO E ESTADO
    ========================================================================== */
 
-const VERSAO_RDO = '1.1.0';
+const VERSAO_RDO = '1.2.0';
 const NOME_CONTROLE_KZ = 'RDO — Relatório Diário de Obra';
 const LINK_CONTROLE_KZ = 'rdo';            // trecho do link do controle cadastrado no Portal (…/rdo/)
 const MARCA = { logo: 'CTC', titulo: 'RDO — Relatório Diário de Obra' };
@@ -1612,11 +1614,11 @@ function paginaConfiguracao() {
 
   const portal = estado.aprovadoresDoPortal;
   const prov = criarFormulario({
-    colunas: 2, textoEnviar: 'Salvar aprovadores provisórios',
-    valores: { ...c.aprovadoresProvisorios },
+    colunas: 2, textoEnviar: 'Salvar aprovadores provisórios', semBotoes: portal || somente,
+    valores: portal ? { ...estado.aprovadores } : { ...c.aprovadoresProvisorios },
     campos: [
-      { nome: 'contratada', rotulo: 'E-mail do aprovador da contratada', tipo: 'email', desabilitado: somente || portal },
-      { nome: 'contratante', rotulo: 'E-mail do aprovador do contratante', tipo: 'email', desabilitado: somente || portal },
+      { nome: 'contratada', rotulo: portal ? '🔒 1ª aprovação — Contratada (definido no Portal KZ)' : 'E-mail do aprovador da contratada (provisório)', tipo: 'email', desabilitado: somente || portal },
+      { nome: 'contratante', rotulo: portal ? '🔒 2ª aprovação — Contratante (definido no Portal KZ)' : 'E-mail do aprovador do contratante (provisório)', tipo: 'email', desabilitado: somente || portal },
     ],
     onEnviar: async (v) => { if (somente || portal) return; await salvarConfig({ aprovadoresProvisorios: { contratada: v.contratada.toLowerCase(), contratante: v.contratante.toLowerCase() } }, 'Aprovadores provisórios salvos.'); aplicativo.navegar('configuracao'); },
   });
@@ -1629,8 +1631,8 @@ function paginaConfiguracao() {
       titulo: 'Aprovadores', icone: 'check', tag: portal ? 'definidos no Portal KZ' : 'Portal ainda sem aprovadores',
       conteudo: [
         criarAlerta({ tipo: portal ? 'success' : 'warning', mensagem: portal
-          ? `Contratada: ${estado.aprovadores.contratada || '—'} · Contratante: ${estado.aprovadores.contratante || '—'}. Para trocar, edite o controle RDO da obra no Portal KZ.`
-          : 'O Portal KZ ainda não tem os aprovadores do RDO desta obra. Enquanto isso, valem os e-mails abaixo (provisórios). A pessoa precisa ter login no Portal e papel Editor (ou Admin) no RDO para conseguir aprovar.' }),
+          ? 'Os aprovadores vêm do Portal KZ e não podem ser alterados aqui. Para trocar, o gestor da obra usa o botão "Aprovadores" na linha do RDO, em Configurar controles. Os cargos ficam em "Identidade do relatório".'
+          : 'O Portal KZ ainda não tem os aprovadores do RDO desta obra (o gestor cadastra no botão "Aprovadores" da linha do RDO, em Configurar controles). Enquanto isso, valem os e-mails abaixo (provisórios). A pessoa precisa ter login no Portal e papel Editor (ou Admin) no RDO para conseguir aprovar.' }),
         prov.elemento,
       ],
     }).elemento,

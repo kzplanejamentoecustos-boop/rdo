@@ -257,7 +257,9 @@ function paginaRdo() {
     return h('div', { class: `rdo-aprov__box${a ? ' is-ok' : ''}` },
       h('div', { class: 'rdo-aprov__tit' }, `${ordem}ª aprovação`), h('div', {}, email),
       h('div', { class: 'rdo-aprov__linha' }),
-      a ? h('div', {}, a.nome) : h('div', { class: 'rdo-mudo' }, 'Pendente'),
+      a ? h('div', {}, a.nome) : (souAprovador(lado) && rdo.status === (lado === 'contratada' ? 'enviado' : 'em-aprovacao')
+        ? h('div', {}, h('span', { class: 'rdo-st rdo-st--revisar' }, 'Aguardando você'))
+        : h('div', { class: 'rdo-mudo' }, 'Pendente')),
       a ? h('div', {}, a.email) : null,
       h('div', {}, cargo),
       a ? h('div', { class: 'rdo-aprov__ok' }, `✓ Aprovado em ${formatarData(a.em, 'data-hora')}`) : null,
