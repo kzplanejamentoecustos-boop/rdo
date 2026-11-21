@@ -7911,6 +7911,14 @@ return { iniciarFirebase, observarLogin, sair, entrar, usuarioAtual, carregarPer
    (CTC App Standard 1.7 + acesso-kz.js do Portal KZ): visual do Controle de
    Custos, login do Portal KZ e nuvem por obra.
 
+   1.3.1: logos e foto da obra da Configuracao deixam de ser PNG pesado (a foto da obra em PNG
+          passava de 1 MB e a nuvem recusava a configuracao inteira): foto da obra em JPEG ate
+          ~250 KB; logo em PNG se for pequeno (mantem o fundo transparente), senao comprimido ate
+          ~120 KB. Erro de tamanho da nuvem explicado em portugues.
+          Fotos sempre abaixo do limite da nuvem (1 MB por documento): a compressao ajusta a
+          qualidade (e, se preciso, o tamanho) ate a foto ficar com no maximo 600 KB; fotos ja
+          guardadas no aparelho sao recomprimidas na hora de enviar; uma foto com erro nao trava
+          mais o envio dos relatorios e das outras fotos.
    1.3.0: varias pessoas no mesmo relatorio: antes de enviar, junta a nuvem com o aparelho item por
           item (cada linha de efetivo, equipamento, atividade, ocorrencia, material, visita e foto,
           cada turno do clima, cada campo do horario e cada campo simples), numa transacao; vale a
@@ -7967,7 +7975,7 @@ return { iniciarFirebase, observarLogin, sair, entrar, usuarioAtual, carregarPer
    00. CONFIGURACAO, ACESSO E ESTADO
    ========================================================================== */
 
-const VERSAO_RDO = '1.3.0';
+const VERSAO_RDO = '1.3.1';
 const NOME_CONTROLE_KZ = 'RDO — Relatório Diário de Obra';
 const LINK_CONTROLE_KZ = 'rdo';            // trecho do link do controle cadastrado no Portal (…/rdo/)
 const MARCA = { logo: 'CTC', titulo: 'RDO — Relatório Diário de Obra' };
@@ -8371,6 +8379,7 @@ function erroNuvem(erro) {
   const t = String((erro && (erro.code || erro.message)) || erro);
   if (/permission/i.test(t)) return new Error('Sem permissão na nuvem para esta ação. O gestor da obra precisa liberar o papel Editor (ou Admin) no RDO, no Portal KZ.');
   if (/unavailable|network|offline/i.test(t)) return new Error('Sem conexão com a nuvem.');
+  if (/maximum.*size|exceeds|too large|longer than|1048576|1048487|1,048,576/i.test(t)) return new Error('O conteúdo ficou grande demais para a nuvem (limite de 1 MB por item). Use imagens menores ou remova alguma imagem da configuração.');
   return erro instanceof Error ? erro : new Error(t);
 }
 async function nuvem(acao) {
@@ -8632,12 +8641,18 @@ async function sincronizar({ silencioso = false } = {}) {
   estado.sync.rodando = true;
   try {
     // 1) fotos primeiro (o RDO so aponta para fotos que ja estao na nuvem)
+    const fotosComErro = [];
     for (const chave of [...estado.fotosPendentes]) {
       const [rdoId, fotoId] = chave.split('|');
-      const item = await localLer(chaveLocal('foto', rdoId, fotoId));
-      if (item && item.valor) await nuvemFotoGravar(rdoId, fotoId, item.valor);
-      if (item) await localGravar(item.chave, item.valor, false);
-      estado.fotosPendentes.delete(chave);
+      try {
+        const item = await localLer(chaveLocal('foto', rdoId, fotoId));
+        const valor = item && item.valor ? await fotoNoLimite(item.valor) : null;
+        if (valor) await nuvemFotoGravar(rdoId, fotoId, valor);
+        if (item) await localGravar(item.chave, valor || item.valor, false);
+        estado.fotosPendentes.delete(chave);
+      } catch (erro) {
+        fotosComErro.push(erro.message);   // a foto fica pendente; o resto do envio continua
+      }
     }
     // 2) configuracao
     if (estado.configPendente) {
@@ -8671,7 +8686,8 @@ async function sincronizar({ silencioso = false } = {}) {
     }
     redesenharSePuder(recebidos);
     estado.sync.ultimo = agoraIso();
-    estado.sync.erro = null;
+    estado.sync.erro = fotosComErro.length ? `${fotosComErro.length} foto(s) não enviada(s): ${fotosComErro[0]}` : null;
+    if (fotosComErro.length && !silencioso) toast.aviso('Foto não enviada', `${fotosComErro.length} foto(s) continuam neste aparelho e serão tentadas de novo. ${fotosComErro[0]}`);
     if (descartados.length) toast.aviso('Alterações descartadas', `O(s) RDO(s) de ${descartados.join(', ')} já tinham sido aprovados na nuvem.`);
     if (!silencioso) toast.sucesso('Sincronizado', conflitos ? `Enviado. Em ${conflitos} item(ns) mexidos por duas pessoas, valeu a alteração deste aparelho.` : 'Tudo foi juntado com o que está na nuvem da obra e enviado.');
     return true;
@@ -8922,6 +8938,69 @@ function desenharReduzida(img, lado, carimbo) {
   return c;
 }
 
+/* v1.3.1: o Firestore aceita no maximo 1 MB por documento; foto grande + miniatura passava disso
+   (fotos com muito detalhe chegam a ~850 KB em 1280 px). Alvo: foto <= 600 KB e miniatura <= 60 KB. */
+const LIMITE_FOTO = 600 * 1024;
+const LIMITE_MINI = 60 * 1024;
+function reduzirCanvas(origem, fator) {
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(origem.width * fator));
+  c.height = Math.max(1, Math.round(origem.height * fator));
+  c.getContext('2d').drawImage(origem, 0, 0, c.width, c.height);
+  return c;
+}
+/** JPEG que cabe no limite: baixa a qualidade e, se nao bastar, o tamanho (a imagem continua legivel). */
+function jpegNoLimite(canvas, limite = LIMITE_FOTO, qualidades = [0.72, 0.64, 0.56, 0.48, 0.4]) {
+  let c = canvas;
+  for (let volta = 0; volta < 8; volta += 1) {
+    for (const q of qualidades) {
+      const dados = c.toDataURL('image/jpeg', q);
+      if (dados.length <= limite) return dados;
+    }
+    c = reduzirCanvas(c, 0.85);
+  }
+  return c.toDataURL('image/jpeg', 0.4);
+}
+/** Logo ou foto da obra para a configuracao (que e um documento so, limitado a 1 MB no total). */
+const LIMITE_LOGO = 120 * 1024;
+const LIMITE_CAPA = 250 * 1024;
+async function imagemParaConfig(arquivo, { ladoMaximo, capa = false }) {
+  if (!arquivo || !/^image\//.test(arquivo.type)) throw new Error('Escolha um arquivo de imagem (JPG, PNG ou WEBP).');
+  if (arquivo.size > 15 * 1024 * 1024) throw new Error('A imagem deve ter no máximo 15 MB.');
+  const img = await carregarImagem(await lerArquivoComoUrl(arquivo));
+  const tela = desenharReduzida(img, ladoMaximo, '');
+  if (capa) return jpegNoLimite(tela, LIMITE_CAPA);
+  const png = tela.toDataURL('image/png');
+  if (png.length <= LIMITE_LOGO) return png;   // logo pequeno: PNG com fundo transparente
+  for (const q of [0.92, 0.85, 0.75]) {   // WEBP tambem mantem a transparencia (onde o navegador suporta)
+    const webp = tela.toDataURL('image/webp', q);
+    if (webp.startsWith('data:image/webp') && webp.length <= LIMITE_LOGO) return webp;
+  }
+  const branco = document.createElement('canvas');   // ultimo caso: JPEG com fundo branco
+  branco.width = tela.width; branco.height = tela.height;
+  const ctx = branco.getContext('2d');
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, branco.width, branco.height); ctx.drawImage(tela, 0, 0);
+  return jpegNoLimite(branco, LIMITE_LOGO);
+}
+
+/** Foto guardada antes da v1.3.1 pode passar do limite: recomprime antes de enviar. */
+async function fotoNoLimite(valor) {
+  if (!valor || !valor.dados) return valor;
+  let { dados, mini } = valor;
+  let mudou = false;
+  if (dados.length > LIMITE_FOTO) {
+    const img = await carregarImagem(dados);
+    dados = jpegNoLimite(desenharReduzida(img, Math.max(img.naturalWidth, img.naturalHeight), ''));
+    mudou = true;
+  }
+  if (mini && mini.length > LIMITE_MINI) {
+    const img = await carregarImagem(mini);
+    mini = jpegNoLimite(desenharReduzida(img, 320, ''), LIMITE_MINI);
+    mudou = true;
+  }
+  return mudou ? { ...valor, dados, mini } : valor;
+}
+
 async function adicionarFotos(id, arquivos) {
   const rdo = estado.rdos.get(id);
   if (!podeEditarRdo(rdo)) return;
@@ -8934,8 +9013,8 @@ async function adicionarFotos(id, arquivos) {
       const img = await carregarImagem(await lerArquivoComoUrl(arquivo));
       const quando = arquivo.lastModified ? new Date(arquivo.lastModified) : new Date();
       const carimbo = `${formatarData(quando, 'data-hora')} · ${estado.obra.sigla || estado.obra.nome || ''}`.trim();
-      const grande = desenharReduzida(img, 1280, carimbo).toDataURL('image/jpeg', 0.72);
-      const mini = desenharReduzida(img, 320, '').toDataURL('image/jpeg', 0.7);
+      const grande = jpegNoLimite(desenharReduzida(img, 1280, carimbo));
+      const mini = jpegNoLimite(desenharReduzida(img, 320, ''), LIMITE_MINI, [0.7, 0.6, 0.5]);
       const fotoId = gerarId('foto');
       await localGravar(chaveLocal('foto', id, fotoId), { dados: grande, mini }, true);
       estado.fotosPendentes.add(`${id}|${fotoId}`);
@@ -10472,7 +10551,7 @@ function painelIdentidade() {
       const arq = ev.target.files[0]; ev.target.value = '';
       if (!arq) return;
       try {
-        const dados = await lerImagemComoDataURL(arq, { ladoMaximo, tamanhoMaximoMB: 10 });
+        const dados = await imagemParaConfig(arq, { ladoMaximo, capa: chave === 'capa' });   // v1.3.1: JPEG/WEBP leve, nao PNG pesado
         const nova = chave === 'capa' ? { capa: dados } : { logos: { ...(c.logos || {}), [chave]: dados } };
         await salvarConfig(nova, `${rotulo} atualizada.`);
         aplicativo.navegar('configuracao');

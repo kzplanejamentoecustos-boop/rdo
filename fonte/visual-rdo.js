@@ -309,7 +309,7 @@ function painelIdentidade() {
       const arq = ev.target.files[0]; ev.target.value = '';
       if (!arq) return;
       try {
-        const dados = await lerImagemComoDataURL(arq, { ladoMaximo, tamanhoMaximoMB: 10 });
+        const dados = await imagemParaConfig(arq, { ladoMaximo, capa: chave === 'capa' });   // v1.3.1: JPEG/WEBP leve, nao PNG pesado
         const nova = chave === 'capa' ? { capa: dados } : { logos: { ...(c.logos || {}), [chave]: dados } };
         await salvarConfig(nova, `${rotulo} atualizada.`);
         aplicativo.navegar('configuracao');
